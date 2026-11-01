@@ -1,0 +1,74 @@
+# ---- 运行时数据（含账号令牌/成绩/密钥，绝不入库）----
+data/
+*.db
+*.db-wal
+*.db-shm
+secret.key
+*.log
+logs/
+
+# ---- 配置与密钥 ----
+.env
+.env.local
+llm.json
+*.pem
+*.key
+*.pfx
+*.p12
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 打包产物 ----
+dist/
+build/
+build_native/
+nuitka_test/
+_native_test/
+_standalone_test/
+_zip_test/
+*.exe
+*.ipa
+*.app
+*.pkg
+*.onefile-build/
+*.build/
+*.dist/
+
+# ---- 抓包 / 本地调试文件 ----
+*.har
+cookies.txt
+ajar.txt
+*.jar
+login*.json
+pl_dry.json
+rs_*.json
+ans.json
+complete.json
+sched.json
+ban.json
+unban.json
+al.json
+u.json
+u_jar.txt
+web*.jar
+pw_probe.json
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- PyInstaller spec ----
+*.spec
+

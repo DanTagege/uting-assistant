@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>U听说助手 · 听力作业托管</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#0f1115" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="U听说" />
+<meta name="format-detection" content="telephone=no" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+<style>
+  :root { color-scheme: light dark; --bg:#0f1115; --card:#171a21; --line:#262b36; --fg:#e7ecf3; --muted:#8b95a7; --ok:#39d98a; --warn:#ffcc66; --err:#ff6b6b; --pri:#5b9dff; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f5f7fb; --card:#fff; --line:#e3e8f0; --fg:#1a1f2b; --muted:#667085; } }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+  a{color:var(--pri)} .wrap{max-width:1080px;margin:0 auto;padding:24px 16px 64px}
+  h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:24px 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap} .spread{justify-content:space-between}
+  .muted{color:var(--muted)} .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+  input,select,button{font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--fg)}
+  input{min-width:0;width:100%} button{cursor:pointer;background:var(--pri);border-color:transparent;color:#fff;font-weight:600}
+  button.ghost{background:transparent;color:var(--fg);border-color:var(--line)} button:disabled{opacity:.5;cursor:not-allowed}
+  .grid{display:grid;gap:12px} .cols3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .stat{font-size:24px;font-weight:700}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+  .tabs button{background:transparent;color:var(--muted);border:1px solid transparent}
+  .tabs button.on{color:var(--fg);border-color:var(--line);background:var(--card)}
+  .item{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px;display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+  .badge{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .b-ok{color:var(--ok);border-color:currentColor} .b-warn{color:var(--warn);border-color:currentColor} .b-err{color:var(--err);border-color:currentColor}
+  .log{background:#05070a;color:#c8d3e3;border-radius:12px;padding:12px;font-family:ui-monospace,Consolas,monospace;font-size:12px;max-height:260px;overflow:auto;white-space:pre-wrap}
+  .log .e{color:#ff8080} .log .w{color:#ffd166}
+  table{width:100%;border-collapse:collapse;font-size:13px} th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+  .hide{display:none} .hint{font-size:12px;color:var(--muted)}
+  .hero{padding:40px 0 8px} .hero p{color:var(--muted);margin:6px 0 20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ 登录 ============ -->
+  <section id="loginView" class="hide">
+    <div class="hero"><h1>UCampus · U听说自动托管</h1>
+      <p>本地运行：周训练托管 + 题库/AI 作答 + 可调作答时长。请使用 11 位手机号登录。</p></div>
+    <div class="card" style="max-width:420px">
+      <div class="grid">
+        <label>手机号<input id="username" placeholder="11 位手机号" inputmode="numeric" maxlength="11" /></label>
+        <label>密码<input id="password" type="password" placeholder="密码" maxlength="256" /></label>
+        <details>
+          <summary class="hint" style="cursor:pointer">或用 JWT 登录（密码登录被滑块拦住时走这条）</summary>
+          <label style="margin-top:8px">JWT / authorization
+            <textarea id="jwtBox" rows="3" placeholder="粘贴 eyJ... 开头的一整串" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12px"></textarea>
+          </label>
+        </details>
+        <button id="loginBtn">登录</button>
+        <p id="loginMsg" class="hint"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 工作台 ============ -->
+  <section id="appView" class="hide">
+    <div id="modeBanner" class="hide" style="margin-top:10px;border-radius:12px;padding:10px 14px;border:1px solid var(--line);font-size:13px"></div>
+    <div class="row" style="margin-top:8px;gap:8px">
+      <label class="hint row" style="gap:6px;width:auto">
+        <input type="checkbox" id="realSubmitToggle" style="width:auto" /> 真实提交（勾上后点「自动答题」会真的交卷）
+      </label>
+      <label class="hint row" style="gap:6px;width:auto">
+        每篇用时 <input id="durMin" type="number" min="0" max="60" step="1" style="width:72px" /> 分钟
+      </label>
+      <label class="hint row" style="gap:6px;width:auto">
+        随机 <input id="durJit" type="number" min="0" max="60" step="5" style="width:64px" /> %
+      </label>
+      <button id="saveDur" class="ghost">保存</button>
+      <span id="settingsMsg" class="hint"></span>
+    </div>
+    <div class="row spread" style="margin-top:8px">
+      <div><h1 id="who">工作台</h1><div class="muted" id="school"></div></div>
+      <div class="row">
+        <button id="hostBtn" class="ghost">自动托管</button>
+        <button id="switchBtn" class="ghost">切换账号</button>
+        <button id="logoutBtn" class="ghost">退出</button>
+      </div>
+    </div>
+
+    <div class="grid cols3" style="margin-top:16px">
+      <div class="card"><div class="muted" id="stat1Title">已托管</div><div class="stat" id="statHosted">–</div></div>
+      <div class="card"><div class="muted" id="stat2Title">已自动完成</div><div class="stat" id="statDone">–</div></div>
+      <div class="card"><div class="muted">运行天数</div><div class="stat" id="statUp">–</div></div>
+    </div>
+
+    <h2>训练</h2>
+    <details style="margin-bottom:10px">
+      <summary class="hint" style="cursor:pointer">DeepSeek 自动答题设置（题库里没有这一篇时，让模型读原文作答）</summary>
+      <div class="card" style="margin-top:10px">
+        <div class="row">
+          <input id="llmKey" type="password" placeholder="sk-... DeepSeek API Key" style="max-width:340px" />
+          <select id="llmModel" style="width:auto">
+            <option value="deepseek-chat">deepseek-chat</option>
+            <option value="deepseek-reasoner">deepseek-reasoner</option>
+          </select>
+          <button id="llmSave">保存</button>
+          <button id="llmTest" class="ghost">测试连接</button>
+        </div>
+        <p id="llmMsg" class="hint" style="margin-top:8px"></p>
+      </div>
+    </details>
+
+    <div class="card">
+      <div class="tabs" id="tabs">
+        <button data-tab="adaptive" class="on">自适应训练</button>
+        <button data-tab="assigned">老师布置</button>
+        <button data-tab="history">训练历史</button>
+        <button data-tab="jobs">答题记录</button>
+        <button id="refreshBtn" class="ghost" style="margin-left:auto">刷新</button>
+      </div>
+      <div id="weekBar" class="hint" style="margin-bottom:10px"></div>
+      <div id="list"></div>
+    </div>
+
+    <div id="placementBox" class="card hide" style="margin-top:12px">
+      <div class="row spread">
+        <div><b>听力定级</b> <span class="hint">这个账号还没定级，做完才会下发周训练</span></div>
+        <span class="badge b-warn" id="plState">未定级</span>
+      </div>
+      <div class="row" style="margin-top:10px;gap:12px">
+        <label class="hint row" style="gap:6px;width:auto">目标级别
+          <select id="plLevel" style="width:auto"></select>
+        </label>
+        <label class="hint row" style="gap:6px;width:auto">答对率(%)
+          <input id="plRatio" type="number" min="0" max="100" value="0" style="width:86px" />
+        </label>
+        <span class="hint">0 = 用映射表</span>
+        <label class="hint row" style="gap:6px;width:auto">
+          <input type="checkbox" id="plConfirm" style="width:auto" /> 我确认定级只能做一次
+        </label>
+        <button id="plStart">开始定级</button>
+        <button id="plDry" class="ghost">预览（不提交）</button>
+      </div>
+      <p id="plMsg" class="hint" style="margin-top:8px"></p>
+    </div>
+
+    <div id="logBox" class="hide">
+      <h2>执行日志 <span class="hint" id="jobMeta"></span></h2>
+      <div id="progWrap" class="hide" style="margin:10px 0 12px">
+        <div style="height:10px;background:var(--line);border-radius:999px;overflow:hidden">
+          <div id="progBar" style="height:100%;width:0%;background:var(--pri);transition:width .4s"></div>
+        </div>
+        <div class="hint" id="progText" style="margin-top:6px"></div>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <!-- ============ 管理端 ============ -->
+    <section id="adminBox" class="hide">
+      <h2>调度</h2>
+      <div class="card">
+        <div class="row">
+          <label class="hint">启用 <input type="checkbox" id="sEnabled" style="width:auto" /></label>
+          <label class="hint">周几
+            <select id="sWeekday">
+              <option value="0">周一</option><option value="1">周二</option><option value="2">周三</option>
+              <option value="3">周四</option><option value="4">周五</option><option value="5">周六</option>
+              <option value="6">周日</option></select></label>
+          <label class="hint">时间 <input id="sTime" type="time" style="width:auto" /></label>
+          <label class="hint">并发 <input id="sPar" type="number" min="1" max="32" style="width:80px" /></label>
+          <button id="sSave">保存</button>
+          <button id="sRun" class="ghost">立即执行</button>
+        </div>
+        <p class="hint" id="sInfo" style="margin-top:10px"></p>
+      </div>
+
+      </section>
+  </section>
+</div>
+
+<!-- 取卷 / 补答案 -->
+<dialog id="paperDlg" style="border:1px solid var(--line);border-radius:14px;padding:0;background:var(--card);color:var(--fg);max-width:min(780px,94vw);width:100%">
+  <div style="padding:16px">
+    <div class="row spread">
+      <h3 id="paperTitle" style="margin:0;font-size:16px">卷面</h3>
+      <span id="paperMeta" class="hint"></span>
+    </div>
+    <div id="paperBody" style="margin-top:12px;max-height:60vh;overflow:auto"></div>
+    <div class="row" style="margin-top:14px">
+      <button id="saveAnswersBtn">保存到题库</button>
+      <button id="closePaperBtn" class="ghost">关闭</button>
+      <span id="paperMsg" class="hint"></span>
+    </div>
+  </div>
+</dialog>
+
+<script>
+const S = { sid: "", profile: null, hosting: null, overview: null, tab: "adaptive", jobTimer: null };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function visitorId() {
+  let v = localStorage.getItem("uc_visitor");
+  if (!v) { v = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())).replace(/-/g, "").slice(0, 32); localStorage.setItem("uc_visitor", v); }
+  return v;
+}
+function headers(extra) {
+  const h = Object.assign({ "Content-Type": "application/json" }, extra || {});
+  h["X-UCampus-Fingerprint"] = "5:" + visitorId();
+  h["X-UCampus-Device-Info"] = encodeURIComponent(JSON.stringify({
+    platform: navigator.platform || "web", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "", screen: `${screen.width}×${screen.height}`
+  }));
+  if (S.sid) h["X-UCampus-Session"] = S.sid;
+  return h;
+}
+async function api(path, { method = "GET", body } = {}) {
+  const opt = { method, credentials: "same-origin", headers: headers(method !== "GET" ? { "X-UCampus-Request": "1" } : {}) };
+  if (body !== undefined) opt.body = JSON.stringify(body);
+  const res = await fetch(path, opt);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data.error || data.detail || `请求失败 (${res.status})`;
+    const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    err.status = res.status; err.data = data; throw err;
+  }
+  return data;
+}
+
+/* ---------------- 登录 ---------------- */
+$("loginBtn").onclick = async () => {
+  $("loginMsg").textContent = "登录中…";
+  try {
+    const body = {
+      username: $("username").value.trim(), password: $("password").value,
+      challenge: "local", validate: "", seccode: ""
+    };
+    const jwt = ($("jwtBox")?.value || "").trim();
+    if (jwt) body.jwt = jwt;
+    const data = await api("/api/login", { method: "POST", body });
+    S.sid = data.sessionId; S.profile = data.profile;
+    $("loginMsg").textContent = "";
+    await enterApp();
+  } catch (e) { $("loginMsg").textContent = e.message; }
+};
+
+async function enterApp() {
+  $("loginView").classList.add("hide"); $("appView").classList.remove("hide");
+  $("who").textContent = S.profile?.name || S.profile?.account || "工作台";
+  $("school").textContent = S.profile?.schoolName || "";
+  $("adminBox").classList.toggle("hide", !S.profile?.is_admin);
+  try {
+    const meta = await api("/api/meta");
+    applyMeta(meta);
+  } catch {}
+  await Promise.all([loadStats(), loadHosting(), loadOverview()]);
+  await loadLlm();
+  await loadPlacement();
+  await loadDuration();
+  if (S.profile?.is_admin) loadAdmin();
+}
+
+/* ---------------- 听力定级 ---------------- */
+let PLACEMENT = null;
+
+async function loadPlacement() {
+  try {
+    const p = await api("/api/placement/info");
+    PLACEMENT = p;
+    const box = $("placementBox");
+    if (!p.needsPlacement) {
+      if (p.levelName) {
+        box.classList.remove("hide");
+        $("plState").textContent = "已定级 " + p.levelName;
+        $("plState").className = "badge b-ok";
+        $("plMsg").textContent = `已定级：${p.levelName}${p.targetLevel ? "（目标 " + p.targetLevel + "）" : ""}，无需重做`;
+        ["plStart", "plConfirm", "plLevel"].forEach(id => { const el = $(id); if (el) el.disabled = true; });
+      } else {
+        box.classList.add("hide");
+      }
+      return;
+    }
+    box.classList.remove("hide");
+    $("plState").textContent = "未定级";
+    $("plState").className = "badge b-warn";
+    $("plLevel").innerHTML = (p.levels || []).map(l => `<option>${esc(l)}</option>`).join("");
+    $("plLevel").value = (p.currentLevel && (p.levels || []).includes(p.currentLevel)) ? p.currentLevel : "S14";
+    $("plRatio").value = (p.map && p.map[$("plLevel").value]) || 0;
+    $("plMsg").textContent = `定级卷 taskId=${p.taskId || "—"}｜模型：${p.llm ? "已配置" : "未配置"}` +
+      `｜真实提交：${p.realSubmit ? "开" : "关（先打开顶部开关）"}`;
+  } catch (e) { /* 未登录忽略 */ }
+}
+
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.id === "plLevel") {
+    const map = (PLACEMENT && PLACEMENT.map) || {};
+    const el = $("plRatio");
+    if (el) el.value = map[e.target.value] || 0;
+  }
+});
+
+document.addEventListener("click", async (e) => {
+  if (e.target && e.target.id === "plDry") {
+    if (!PLACEMENT || !PLACEMENT.llm) { $("plMsg").textContent = "请先配置 DeepSeek API Key"; return; }
+    const b = e.target; b.disabled = true;
+    $("plMsg").textContent = "正在取定级卷 + 模型作答（不提交）…";
+    try {
+      const r = await api("/api/placement/start", { method: "POST", body: {
+        targetLevel: $("plLevel").value, ratio: Number($("plRatio").value) || 0,
+        confirm: false, dry: true } });
+      $("plMsg").textContent = `预览：${r.questions} 项 / 客观 ${r.probe}，模型答出 ${r.solved}（补 ${r.filled}），`
+        + `目标 ${r.targetLevel} → 答对率 ${r.ratio}%。确认后点「开始定级」`;
+    } catch (err) { $("plMsg").textContent = "预览失败：" + err.message; }
+    finally { b.disabled = false; }
+    return;
+  }
+  if (!e.target || e.target.id !== "plStart") return;
+  if (!$("plConfirm").checked) { $("plMsg").textContent = "请先勾选「我确认定级只能做一次」"; return; }
+  if (!PLACEMENT || !PLACEMENT.llm) { $("plMsg").textContent = "请先配置 DeepSeek API Key"; return; }
+  if (!PLACEMENT.realSubmit) { $("plMsg").textContent = "请先打开顶部的「真实提交」开关"; return; }
+  const btn = e.target;
+  btn.disabled = true;
+  $("plMsg").textContent = "正在取定级卷并由模型作答…（约 30–90 秒）";
+  try {
+    const r = await api("/api/placement/start", { method: "POST", body: {
+      targetLevel: $("plLevel").value, ratio: Number($("plRatio").value) || 0, confirm: true } });
+    $("plMsg").textContent = r.levelName
+      ? `定级完成：${r.levelName}（答对率 ${r.ratio}%，共 ${r.questions} 项）${r.description ? "｜" + r.description : ""}`
+      : `已交卷，报告还在生成（答对率 ${r.ratio}%），稍后刷新看级别`;
+    await loadPlacement();
+    await loadOverview();
+  } catch (err) {
+    $("plMsg").textContent = "定级失败：" + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function applyMeta(meta) {
+  S.meta = meta;
+  const el = $("modeBanner");
+  el.textContent = meta.note;
+  el.classList.remove("hide");
+  el.style.color = meta.real ? (meta.real_submit ? "var(--ok)" : "var(--warn)") : "var(--err)";
+  el.style.background = meta.real ? (meta.real_submit ? "rgba(57,217,138,.12)" : "rgba(255,204,102,.12)")
+                                  : "rgba(255,107,107,.12)";
+  $("realSubmitToggle").checked = !!meta.real_submit;
+}
+
+$("realSubmitToggle").onchange = async (e) => {
+  const want = e.target.checked;
+  $("settingsMsg").textContent = "保存中…";
+  try {
+    await api("/api/settings", { method: "PUT", body: { realSubmit: want } });
+    applyMeta(await api("/api/meta"));
+    $("settingsMsg").textContent = want ? "已开启真实提交：点「自动答题」会直接交卷" : "已切回预演：只组装答案不交卷";
+  } catch (err) {
+    e.target.checked = !want;
+    $("settingsMsg").textContent = err.message;
+  }
+};
+
+/* ---------------- 作答时长 ---------------- */
+async function loadDuration() {
+  try {
+    const s = await api("/api/settings");
+    $("durMin").value = s.durationMinutes ?? 0;
+    $("durJit").value = s.jitterPercent ?? 20;
+    if ((s.durationMinutes ?? 0) > 0) {
+      $("settingsMsg").textContent = `当前：每篇约 ${s.durationMinutes} 分钟（±${s.jitterPercent}%）`;
+    }
+  } catch {}
+}
+
+$("saveDur").onclick = async () => {
+  const minutes = Number($("durMin").value) || 0;
+  const jitter = Number($("durJit").value) || 0;
+  $("settingsMsg").textContent = "保存中…";
+  try {
+    const r = await api("/api/settings", { method: "PUT", body: { durationMinutes: minutes, jitterPercent: jitter } });
+    $("settingsMsg").textContent = r.durationMinutes > 0
+      ? `已设置：每篇约 ${r.durationMinutes} 分钟（±${r.jitterPercent}%），答题时会有进度条`
+      : "已关闭时长模拟：立即交卷";
+    await loadDuration();
+  } catch (e) { $("settingsMsg").textContent = e.message; }
+};
+
+/* ---------------- LLM 设置 ---------------- */
+async function loadLlm() {
+  try {
+    const c = await api("/api/llm");
+    S.llm = c;
+    $("llmModel").value = c.model || "deepseek-chat";
+    $("llmKey").placeholder = c.configured ? `已保存：${c.keyMasked}（重填可覆盖）` : "sk-... DeepSeek API Key";
+    $("llmMsg").textContent = c.configured
+      ? `已启用：${c.model} · ${c.baseUrl}${S.llmReady === false ? "" : ""}`
+      : "未配置：缺答案时只能手动补，或点「取卷/补答案」";
+  } catch {}
+}
+
+$("llmSave").onclick = async () => {
+  const key = $("llmKey").value.trim();
+  $("llmMsg").textContent = "保存中…";
+  try {
+    const r = await api("/api/llm", { method: "PUT", body: {
+      apiKey: key, model: $("llmModel").value, baseUrl: "https://api.deepseek.com/v1" } });
+    $("llmKey").value = "";
+    $("llmMsg").textContent = r.configured ? `已保存：${r.keyMasked} · ${r.model}` : "已清除";
+    await loadLlm();
+    render();
+  } catch (e) { $("llmMsg").textContent = e.message; }
+};
+
+$("llmTest").onclick = async () => {
+  $("llmMsg").textContent = "测试中…";
+  try {
+    const r = await api("/api/llm/test", { method: "POST" });
+    $("llmMsg").textContent = `连接正常（${r.ms}ms）`;
+  } catch (e) { $("llmMsg").textContent = e.message; }
+};
+
+$("logoutBtn").onclick = async () => {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+  location.reload();
+};
+
+$("switchBtn").onclick = async () => {
+  if (!confirm("切换账号会退出当前登录，继续？")) return;
+  try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+  location.reload();
+};
+
+/* ---------------- 概况 ---------------- */
+async function loadStats() {
+  try {
+    const [s, u] = await Promise.all([api("/api/stats"), api("/api/uptime")]);
+    $("statHosted").textContent = s.hosted_accounts; $("statDone").textContent = s.completed_jobs;
+    $("statUp").textContent = Number(u.uptime_days).toFixed(1);
+  } catch {}
+}
+
+/* ---------------- 托管 ---------------- */
+async function loadHosting() {
+  try {
+    S.hosting = await api("/api/hosting");
+    const b = $("hostBtn"), names = ["周一","周二","周三","周四","周五","周六","周日"];
+    if (S.hosting.active) { b.textContent = "取消托管（每周" + names[S.hosting.slot] + "自动完成）"; b.style.background = "transparent"; b.style.color = "var(--fg)"; b.style.borderColor = "var(--line)"; }
+    else { b.textContent = "自动托管"; b.style.background = ""; b.style.color = ""; b.style.borderColor = ""; }
+  } catch {}
+}
+$("hostBtn").onclick = async () => {
+  try {
+    S.hosting = S.hosting?.active ? await api("/api/hosting", { method: "DELETE" }) : await api("/api/hosting", { method: "POST" });
+    await Promise.all([loadHosting(), loadStats()]);
+  } catch (e) { alert(e.message); }
+};
+
+/* ---------------- 训练 ---------------- */
+async function loadOverview() {
+  try {
+    S.overview = await api("/api/training/overview");
+    const w = S.overview.adaptive.week;
+    const meta = S.overview.meta || {};
+    const acct = S.profile?.account || "";
+    const masked = acct.length === 11 ? acct.slice(0, 3) + "****" + acct.slice(-4) : acct;
+
+    if (w.done === null || w.done === undefined) {
+      const lv = meta.listenWeek?.level || "—";
+      $("weekBar").textContent = `定级完成（${lv}）｜服务端还没生成本周训练`
+        + (acct ? `　（账号 ${masked}）` : "")
+        + "　— 点右上「刷新」重试，或用手机 App 打开一次定级报告后再刷新";
+    } else {
+      $("weekBar").textContent = `本周已完成 ${w.done}/${w.quota} 篇，还需 ${w.pending} 篇`
+        + (acct ? `　（账号 ${masked}）` : "")
+        + (meta.planPending ? "　（学习计划生成中）" : "");
+    }
+    if (S.meta?.real) {
+      const hist = S.overview.history?.tasks || [];
+      const best = hist.reduce((m, t) => (typeof t.score === "number" ? Math.max(m, t.score) : m), 0);
+      $("stat1Title").textContent = "本周听力";
+      $("statHosted").textContent = (w.done == null) ? "等待派卷" : `${w.done}/${w.quota}`;
+      $("stat2Title").textContent = "历史最高分";
+      $("statDone").textContent = best || "—";
+    }
+    render();
+    schedulePlanPoll(meta);
+  } catch (e) { $("list").innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+}
+
+let PLAN_TIMER = null;
+let PLAN_TRIES = 0;
+function schedulePlanPoll(meta) {
+  if (PLAN_TIMER) { clearInterval(PLAN_TIMER); PLAN_TIMER = null; }
+  const w = S.overview?.adaptive?.week || {};
+  if (!(meta?.planPending || w.done == null)) { PLAN_TRIES = 0; return; }
+  if (PLAN_TRIES >= 12) return;
+  PLAN_TIMER = setInterval(async () => {
+    PLAN_TRIES += 1;
+    if (PLAN_TRIES > 12) { clearInterval(PLAN_TIMER); PLAN_TIMER = null; return; }
+    try {
+      const ov = await api("/api/training/overview");
+      if (ov?.adaptive?.week?.done != null || (ov?.adaptive?.tasks || []).length) {
+        S.overview = ov;
+        clearInterval(PLAN_TIMER); PLAN_TIMER = null; PLAN_TRIES = 0;
+        await loadOverview();
+        await loadPlacement();
+      }
+    } catch {}
+  }, 20000);
+}
+
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
+  if (b.id === "refreshBtn") {
+    b.disabled = true;
+    Promise.all([loadOverview(), loadPlacement(), loadHosting()]).finally(() => { b.disabled = false; });
+    return;
+  }
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); S.tab = b.dataset.tab; render();
+  if (S.tab === "jobs") loadJobs();
+});
+
+function typeLabel(t) { return t.audioVisual === 1 ? "视频" : t.paperHash ? "听力" : "—"; }
+function stateOf(t) {
+  if (t.completed) return ["已完成", "b-ok"];
+  if (t.locked) return ["待解锁", ""];
+  if (t.kind === "teacher" && t.endTime && new Date(t.endTime).getTime() <= Date.now()) return ["已截止", "b-err"];
+  return ["待完成", "b-warn"];
+}
+function taskRow(t) {
+  const [label, cls] = stateOf(t);
+  const can = !t.locked && !t.completed;
+  const ready = t.bank_ready !== false;
+  const btn = !can ? "" : (ready
+    ? `<button data-task="${esc(t.taskId)}" data-ver="${t.ansVersion ?? 0}">自动答题</button>`
+    : `${S.llm?.configured ? `<button data-solve="${esc(t.taskId)}" data-ver="${t.ansVersion ?? 0}">AI 作答</button>` : ""}
+       <button class="ghost" data-paper="${esc(t.taskId)}" data-ver="${t.ansVersion ?? 0}">取卷/补答案</button>`);
+  return `<div class="item">
+    <div style="min-width:0">
+      <div style="font-weight:600">${esc(t.name || t.taskId)}</div>
+      <div class="hint">${esc([t.topicCategory, t.genre, t.level].filter(Boolean).join(" · "))} · 题型 ${typeLabel(t)} · 版本 v${t.ansVersion ?? 0}${t.score != null ? " · 得分 " + t.score : ""}</div>
+    </div>
+    <div class="row">
+      <span class="badge ${cls}">${label}</span>
+      ${btn}
+    </div></div>`;
+}
+function render() {
+  const o = S.overview; if (!o) return;
+  if (S.tab === "jobs") return;
+  const tasks = S.tab === "adaptive" ? o.adaptive.tasks : S.tab === "assigned" ? o.assigned.tasks : o.history.tasks;
+  $("list").innerHTML = tasks.length ? tasks.map(taskRow).join("") : `<p class="hint">暂无记录</p>`;
+  $("list").querySelectorAll("button[data-task]").forEach(btn => btn.onclick = () => answer(btn.dataset.task, Number(btn.dataset.ver), btn));
+  $("list").querySelectorAll("button[data-paper]").forEach(btn => btn.onclick = () => openPaper(btn.dataset.paper, Number(btn.dataset.ver)));
+  $("list").querySelectorAll("button[data-solve]").forEach(btn => btn.onclick = () => aiSolve(btn.dataset.solve, Number(btn.dataset.ver), btn));
+}
+
+async function aiSolve(taskId, ansVersion, btn) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = "模型作答中…";
+  try {
+    const r = await api(`/api/training/tasks/${encodeURIComponent(taskId)}/solve?ans_version=${ansVersion || 0}`, { method: "POST" });
+    btn.textContent = `已答 ${r.solved}/${r.total}`;
+    await loadOverview();
+  } catch (e) {
+    btn.textContent = old; btn.disabled = false;
+    alert(e.message);
+  }
+}
+
+/* ---------------- 取卷 / 补答案 ---------------- */
+let PAPER = null;
+
+async function openPaper(taskId, ansVersion) {
+  const dlg = $("paperDlg");
+  $("paperTitle").textContent = "正在取卷…";
+  $("paperMeta").textContent = taskId;
+  $("paperBody").innerHTML = "";
+  $("paperMsg").textContent = "";
+  dlg.showModal();
+  try {
+    const p = await api(`/api/training/tasks/${encodeURIComponent(taskId)}/paper?ans_version=${ansVersion || 0}`);
+    PAPER = p;
+    $("paperTitle").textContent = p.paperTitle || taskId;
+    $("paperMeta").textContent = `共 ${p.questionCount} 项 · 客观 ${p.probeCount} · 跟读 ${p.oralCount} · v${p.ansVersion}`;
+    const html = [];
+    for (const q of p.questions) {
+      if (q.action !== "probe") {
+        html.push(`<div class="hint" style="margin:6px 0">· #${q.startNo} ${esc(q.name)}（${q.action === "oral" ? "跟读，不提交" : "学习段，不提交"}）</div>`);
+        continue;
+      }
+      html.push(`<div style="margin:12px 0 4px;font-weight:600">#${q.startNo} ${esc(q.name || q.type)}</div>`);
+      if (q.subs && q.subs.length) {
+        q.subs.forEach((sub, i) => {
+          html.push(`<div style="margin:6px 0 2px" class="hint">${i + 1}) ${esc(sub.prompt || "")}</div>`);
+          html.push(renderOptions(q.instanceId, i, sub.options));
+        });
+      } else if (q.options && q.options.length) {
+        html.push(renderOptions(q.instanceId, -1, q.options));
+      } else {
+        html.push(`<input data-q="${esc(q.instanceId)}" placeholder="填写答案" style="margin:4px 0" />`);
+      }
+    }
+    $("paperBody").innerHTML = html.join("") || `<p class="hint">没有可作答的题目</p>`;
+  } catch (e) {
+    $("paperTitle").textContent = "取卷失败";
+    $("paperBody").innerHTML = `<p class="hint">${esc(e.message)}</p>`;
+  }
+}
+
+function renderOptions(iid, subIdx, options) {
+  return `<div class="row" style="gap:14px;margin:2px 0 6px">` + options.map(o =>
+    `<label class="row" style="gap:4px;width:auto"><input type="radio" style="width:auto"
+       name="q-${esc(iid)}-${subIdx}" value="${esc(o.value)}"
+       data-iid="${esc(iid)}" data-sub="${subIdx}" /> ${esc(o.value)}. ${esc(o.label)}</label>`).join("") + `</div>`;
+}
+
+$("closePaperBtn").onclick = () => $("paperDlg").close();
+
+$("saveAnswersBtn").onclick = async () => {
+  if (!PAPER) return;
+  const answers = {};
+  const groups = new Map();
+  $("paperBody").querySelectorAll('input[type="radio"]:checked').forEach(el => {
+    const iid = el.dataset.iid, sub = Number(el.dataset.sub);
+    if (sub < 0) { answers[iid] = el.value; return; }
+    if (!groups.has(iid)) groups.set(iid, []);
+    groups.get(iid)[sub] = el.value;
+  });
+  $("paperBody").querySelectorAll('input[data-q]').forEach(el => {
+    if (el.value.trim()) answers[el.dataset.q] = el.value.trim();
+  });
+  for (const [iid, arr] of groups) answers[iid] = arr;
+  for (const q of PAPER.questions) {
+    if (q.action !== "probe") continue;
+    if (q.subs && q.subs.length && Array.isArray(answers[q.instanceId])) {
+      if ([...answers[q.instanceId]].filter(Boolean).length < q.subs.length) {
+        $("paperMsg").textContent = `#${q.startNo} 还有小题没选`;
+        return;
+      }
+    }
+  }
+  $("paperMsg").textContent = "保存中…";
+  try {
+    const r = await api(`/api/training/tasks/${encodeURIComponent(PAPER.taskId)}/answers?ans_version=${PAPER.ansVersion}`,
+      { method: "POST", body: { answers } });
+    $("paperMsg").textContent = `已保存 ${r.saved} 题到题库`;
+    await loadOverview();
+  } catch (e) { $("paperMsg").textContent = e.message; }
+};
+
+async function answer(taskId, ansVersion, btn) {
+  btn.disabled = true; btn.textContent = "提交中…";
+  try {
+    const r = await api(`/api/training/tasks/${encodeURIComponent(taskId)}/complete`, { method: "POST",
+      body: { ansVersion, questionDelaySeconds: 0 } });
+    await pollJob(r.jobId);
+  } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = "自动答题"; }
+}
+
+function fmtSec(s) {
+  s = Math.max(0, Math.round(Number(s) || 0));
+  const m = Math.floor(s / 60), r = s % 60;
+  return m > 0 ? `${m}分${String(r).padStart(2, "0")}秒` : `${r}秒`;
+}
+
+function renderProgress(p) {
+  const wrap = $("progWrap"), bar = $("progBar"), txt = $("progText");
+  if (!p) { wrap.classList.add("hide"); return; }
+  wrap.classList.remove("hide");
+  bar.style.width = `${Math.max(0, Math.min(100, p.percent || 0))}%`;
+  const phases = { "准备": "准备中", "作答中": "作答中", "提交中": "提交中", "完成": "已完成" };
+  txt.textContent = `${phases[p.phase] || p.phase} ${p.percent ?? 0}%`
+    + `　已用 ${fmtSec(p.elapsed)} / ${fmtSec(p.total)}`
+    + (p.phase === "完成" ? "" : `　预计还剩 ${fmtSec(p.eta)}`);
+  if (p.phase === "完成") bar.style.background = "var(--ok)";
+}
+
+async function pollJob(jobId) {
+  $("logBox").classList.remove("hide"); $("jobMeta").textContent = `#${jobId}`;
+  clearInterval(S.jobTimer);
+  const tick = async () => {
+    try {
+      const job = await api(`/api/training/jobs/${jobId}`);
+      $("log").innerHTML = (job.lines || []).map(l => {
+        const cls = /\s(ERROR|FAIL|失败)/.test(l) ? "e" : /\s(WARN)/.test(l) ? "w" : "";
+        return `<div class="${cls}">${esc(l)}</div>`;
+      }).join("");
+      $("log").scrollTop = $("log").scrollHeight;
+      renderProgress(job.progress);
+      if (job.status === "succeeded" || job.status === "failed") {
+        clearInterval(S.jobTimer);
+        $("jobMeta").textContent = `#${jobId} · ${job.status} · ${job.score != null ? "得分 " + job.score : ""} ${job.error || ""}`;
+        await Promise.all([loadOverview(), loadStats()]);
+        if (S.tab === "jobs") loadJobs();
+      }
+    } catch (e) { clearInterval(S.jobTimer); $("jobMeta").textContent = e.message; }
+  };
+  await tick();
+  S.jobTimer = setInterval(tick, 700);
+}
+
+async function loadJobs() {
+  try {
+    const data = await api("/api/training/jobs?limit=20");
+    $("list").innerHTML = data.jobs.length ? `<table><tr><th>任务</th><th>触发</th><th>状态</th><th>得分</th><th></th></tr>` +
+      data.jobs.map(j => `<tr><td>${esc(j.taskName || j.taskId)}</td><td>${j.trigger}</td>
+        <td>${esc(j.status)}</td><td>${j.score ?? "—"}</td>
+        <td><button class="ghost" onclick="showJob(${j.jobId})">日志</button></td></tr>`).join("") + `</table>`
+      : `<p class="hint">暂无答题记录</p>`;
+  } catch (e) { $("list").innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+}
+window.showJob = (id) => pollJob(id).catch(() => {});
+
+/* ---------------- 管理端 ---------------- */
+async function loadAdmin() {
+  try {
+    const c = await api("/api/admin/scheduler");
+    $("sEnabled").checked = !!c.enabled; $("sWeekday").value = String(c.weekday);
+    $("sTime").value = String(c.hour).padStart(2, "0") + ":" + String(c.minute).padStart(2, "0");
+    $("sPar").value = c.parallelism;
+    $("sInfo").textContent = `槽位分布 ${JSON.stringify(c.slot_counts)} · 上次 ${c.lastStatus || "idle"} ${c.lastMessage || ""}`;
+  } catch (e) { $("sInfo").textContent = e.message; }
+}
+$("sSave").onclick = async () => {
+  const [h, m] = ($("sTime").value || "12:00").split(":").map(Number);
+  try {
+    await api("/api/admin/scheduler", { method: "PUT", body: {
+      enabled: $("sEnabled").checked, weekday: Number($("sWeekday").value),
+      hour: h || 0, minute: m || 0, parallelism: Number($("sPar").value) || 8 } });
+    loadAdmin();
+  } catch (e) { alert(e.message); }
+};
+$("sRun").onclick = async () => {
+  try { await api("/api/admin/scheduler/run", { method: "POST" }); setTimeout(loadAdmin, 1200); }
+  catch (e) { alert(e.message); }
+};
+
+(async () => {
+  try {
+    const s = await api("/api/auth/session");
+    if (s.authenticated) { S.sid = s.sessionId; S.profile = s.profile; await enterApp(); return; }
+  } catch {}
+  $("loginView").classList.remove("hide");
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+httpx>=0.27
+pyjwt>=2.8
+python-multipart>=0.0.9
+tzdata>=2024.1
+# 可选：SSO 登录 AES 加密加速（缺失时自动退回纯 Python 实现）
+cryptography>=42 ; python_version >= '3.8'

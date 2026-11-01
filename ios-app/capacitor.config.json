@@ -1,0 +1,18 @@
+{
+    "appId":  "com.dantagege.uting",
+    "appName":  "U听说助手",
+    "webDir":  "www",
+    "bundledWebRuntime":  false,
+    "server":  {
+                   "url":  "http://192.168.0.108:8710",
+                   "cleartext":  true,
+                   "allowNavigation":  [
+                                           "*"
+                                       ]
+               },
+    "ios":  {
+                "scheme":  "UtingApp",
+                "contentInset":  "always",
+                "backgroundColor":  "#0f1115"
+            }
+}
