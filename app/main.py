@@ -43,7 +43,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-OPEN_PATHS = {"/api/health", "/api/uptime", "/api/stats", "/api/captcha/register"}
+OPEN_PATHS = {"/api/health", "/api/ping", "/api/uptime", "/api/stats", "/api/captcha/register",
+              "/api/meta"}
+
+ALLOW_HEADERS = ("content-type, authorization, x-ucampus-request, x-ucampus-session, "
+                 "x-ucampus-device-info, x-ucampus-fingerprint")
+ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+
+
+def _cors_headers(request: Request) -> dict[str, str]:
+    """本地工具：回显来源并允许携带 cookie，方便换端口/换 IP 打开页面。"""
+    origin = request.headers.get("origin", "")
+    if not origin:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Headers": ALLOW_HEADERS,
+        "Access-Control-Allow-Methods": ALLOW_METHODS,
+        "Access-Control-Max-Age": "600",
+        "Vary": "Origin",
+    }
 
 
 @app.middleware("http")
@@ -51,6 +71,10 @@ async def hardening(request: Request, call_next):
     path = request.url.path
     is_api = path.startswith("/api")
     new_device = False
+
+    # 跨域预检：直接放行，否则浏览器会报 "Failed to fetch"
+    if request.method == "OPTIONS":
+        return JSONResponse({}, status_code=204, headers=_cors_headers(request))
 
     # 设备主键：服务端下发的浏览器实例 cookie（HttpOnly），清 cookie 即新实例
     device_id = request.cookies.get("ucampus_did") or ""
@@ -64,9 +88,12 @@ async def hardening(request: Request, call_next):
             security.check_csrf(request)
         except ApiError as exc:
             return JSONResponse({"error": exc.message, **({"code": exc.code} if exc.code else {})},
-                                status_code=exc.status, headers=exc.headers)
+                                status_code=exc.status,
+                                headers={**exc.headers, **_cors_headers(request)})
 
     response = await call_next(request)
+    for k, v in _cors_headers(request).items():
+        response.headers[k] = v
     response.headers["X-UCampus-Request-Id"] = secrets.token_hex(16)
     response.headers["cache-control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -75,6 +102,14 @@ async def hardening(request: Request, call_next):
         response.set_cookie("ucampus_did", device_id, max_age=180 * 86400,
                             httponly=True, samesite="lax", path="/")
     return response
+
+
+@app.get("/api/ping")
+def ping(request: Request) -> dict:
+    """前端启动自检用：确认后端可达，并把服务端看到的信息回给页面。"""
+    return {"ok": True, "origin": request.headers.get("origin", ""),
+            "host": request.headers.get("host", ""), "upstream": settings.upstream,
+            "time": int(__import__("time").time())}
 
 
 @app.exception_handler(ApiError)

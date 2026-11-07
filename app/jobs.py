@@ -15,7 +15,7 @@ import json
 import time
 from typing import Any
 
-from . import db
+from . import db, runtime
 from .config import settings
 from .engine import AnswerRefused, build_answers
 from .upstream import UpstreamCtx, UpstreamError, get_upstream
@@ -287,15 +287,65 @@ def _answer_payload(item: dict[str, Any]) -> dict[str, Any]:
     return {"value": [text], "children": [], "record": None}
 
 
+def _split_values(raw: Any, count: int, is_choice: bool) -> list[str]:
+    """把题库里的答案拆成"每个空一个值"。
+
+    题库约定：多空用逗号或竖线分隔（"B,C,C,A" / "ACCOUNTS|GLUED|TOUGH"），
+    也可能是列表，或（选择题）连写的 "BCCA"。
+    """
+    if isinstance(raw, list):
+        vals = [str(v).strip() for v in raw]
+    else:
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        sep = "|" if "|" in s else ("," if "," in s else (";" if ";" in s else None))
+        vals = [p.strip() for p in s.split(sep)] if sep else [s]
+        # 选择题连写："BCCA" / "A" 这类，按字符拆
+        if sep is None and is_choice and count > 1 and len(vals[0]) == count \
+                and vals[0].replace(" ", "").isalpha():
+            vals = list(vals[0].replace(" ", ""))
+    return [v for v in vals if v != ""] or []
+
+
 def _build_user_data(upstream: Any, answers: list[dict[str, Any]], paper: dict[str, Any]) -> list[dict[str, Any]]:
-    """按平台规则把答案组装成 userData（用于快照与提交）。"""
+    """按卷面结构组装 userData。
+
+    关键：平台按"卷面叶子数"校验覆盖率（否则 4295），所以每条实例都必须出现，
+    且 children 段数 = 该实例的卷面子题数；音频/学习/口语这类没有客观答案的，
+    补空值即可（不会被判分，但缺了就算覆盖不全）。
+    """
+    by_instance = {str(a["instanceId"]): a for a in answers}
+    questions = paper.get("questions") or []
     out: list[dict[str, Any]] = []
-    for item in answers:
-        if item.get("action") == "oral":
+
+    for q in questions:
+        iid = str(q.get("instanceId") or "")
+        if not iid:
             continue
-        payload = _answer_payload(item)
+        item = by_instance.get(iid) or {}
+        is_probe = (item.get("action") == "probe") and item.get("answer") not in (None, "", [])
+        count = int(q.get("childCount") or len(q.get("subs") or []) or 0)
+        qtype = str(q.get("type") or "").lower()
+        is_choice = any(k in qtype for k in ("choice", "sequence", "select", "judge"))
+
+        vals = _split_values(item.get("answer"), count, is_choice) if is_probe else []
+        if not is_choice:
+            vals = [v for v in vals]          # 填空/跟读保留原文大小写
+        else:
+            vals = [v.upper() for v in vals]
+
+        if count <= 0:
+            payload = {"value": vals, "children": [], "record": None}
+        else:
+            children = []
+            for i in range(count):
+                v = vals[i] if i < len(vals) else ""
+                children.append({"value": [v] if v else []})
+            payload = {"value": [], "children": children, "record": None}
+
         out.append({
-            "instanceId": str(item["instanceId"]),
+            "instanceId": iid,
             "answer": json.dumps(payload, ensure_ascii=False),
             "answerVersion": int(paper.get("ansVersion") or 1),
             "context": json.dumps({"state": "done"}),
@@ -313,6 +363,24 @@ async def _paced_submit(job_id: int, upstream: Any, ctx: Any, task_id: str,
     chunks = max(1, min(total, 12))
     t0 = db.now()
     _set_progress(job_id, 0, "准备", 0, duration_s)
+
+    # 训练时长由平台的独立计时服务统计：作答期间保持 socket 计时会话
+    from .timing import TimingSession, open_id_from_jwt
+
+    probe_modules = [f"uls_{u['instanceId']}" for u in user_data]
+
+    session = TimingSession(ctx.jwt, task_id,
+                            int(ctx.meta.get("ans", {}).get(task_id, 1) or 1),
+                            modules=probe_modules)
+    timing_ok = await session.start()
+    if logger:
+        if timing_ok:
+            await logger(f"INFO 计时会话已建立（{session.module_group}，"
+                         f"ack={session.kick_ack}），平台会记录真实时长")
+        else:
+            await logger(f"WARNING 计时会话建立失败：{session.error or '未知原因'}"
+                         f"（训练时长可能仍显示 0）")
+
     for i in range(1, chunks + 1):
         target = duration_s * i / chunks
         while db.now() - t0 < target:
@@ -323,7 +391,7 @@ async def _paced_submit(job_id: int, upstream: Any, ctx: Any, task_id: str,
         upto = max(1, round(total * i / chunks))
         try:
             await upstream.save_snapshot(ctx, task_id, user_data[:upto],
-                                         duration=int(db.now() - t0))
+                                         duration=runtime.to_payload_duration(db.now() - t0))
             if logger:
                 await logger(f"INFO snapshot {upto}/{total} ({round(i / chunks * 100)}%)")
         except Exception as exc:  # noqa: BLE001 - 快照失败不影响最终提交
@@ -332,27 +400,40 @@ async def _paced_submit(job_id: int, upstream: Any, ctx: Any, task_id: str,
         _set_progress(job_id, i / chunks * 100 * 0.99, "作答中", db.now() - t0, duration_s)
 
     elapsed = int(db.now() - t0)
+    payload_duration = runtime.to_payload_duration(elapsed)
     if logger:
-        await logger(f"INFO 作答完成，用时 {elapsed}s，提交中…")
+        await logger(f"INFO 作答完成，用时 {elapsed}s（上报 duration={payload_duration}"
+                     f"{runtime.get_duration_unit()}），提交中…")
     _set_progress(job_id, 99.0, "提交中", elapsed, duration_s)
-    if hasattr(upstream, "submit_userdata"):
-        res = await upstream.submit_userdata(ctx, task_id, user_data, duration=max(1, elapsed))
-        score, graded = await upstream._read_score(ctx, task_id,
-                                                   int(ctx.meta.get("ans", {}).get(task_id, 1) or 1),
-                                                   logger)
-    else:
-        # 本地 mock 上游：退回普通提交
-        res = None
-        simple = []
-        for u in user_data:
-            parsed = json.loads(u["answer"])
-            if parsed.get("children"):
-                ans = (parsed["children"][0].get("value") or [""])[0]
-            else:
-                ans = (parsed.get("value") or [""])[0]
-            simple.append({"instanceId": u["instanceId"], "action": "probe", "answer": ans})
-        r = await upstream.submit(ctx, task_id, simple, delay_seconds=0, log=logger)
-        score, graded = r.score, r.graded
+    try:
+        if hasattr(upstream, "submit_userdata"):
+            res = await upstream.submit_userdata(ctx, task_id, user_data,
+                                                 duration=max(1, payload_duration))
+            score, graded = await upstream._read_score(
+                ctx, task_id, int(ctx.meta.get("ans", {}).get(task_id, 1) or 1), logger)
+        else:
+            # 本地 mock 上游：退回普通提交
+            res = None
+            simple = []
+            for u in user_data:
+                parsed = json.loads(u["answer"])
+                if parsed.get("children"):
+                    ans = (parsed["children"][0].get("value") or [""])[0]
+                else:
+                    ans = (parsed.get("value") or [""])[0]
+                simple.append({"instanceId": u["instanceId"], "action": "probe", "answer": ans})
+            r = await upstream.submit(ctx, task_id, simple, delay_seconds=0, log=logger)
+            score, graded = r.score, r.graded
+    finally:
+        # 无论交卷成功与否都要关闭计时房间，否则服务端不结算时长
+        await session.stop()
+        if timing_ok:
+            from .timing import query_duration
+
+            recorded = await query_duration(ctx.jwt, session.module_group, session.open_id)
+            if logger:
+                await logger(f"INFO 平台记录的训练时长 = {recorded if recorded is not None else 0}s"
+                             f"（本地计时 {session.elapsed()}s）")
     _set_progress(job_id, 100.0, "完成", elapsed, duration_s)
     from .upstream.base import SubmitResult
 
@@ -441,6 +522,26 @@ async def _run(job_id: int) -> None:
         from . import runtime
 
         user_data = _build_user_data(upstream, answers, paper)
+
+        # 提交前校验：客观题每空都要有值，否则中止（宁可失败也不要 0 分）
+        malformed: list[str] = []
+        for q in (paper.get("questions") or []):
+            if q.get("action") != "probe":
+                continue
+            want = int(q.get("childCount") or len(q.get("subs") or []) or 0)
+            if want <= 0:
+                continue
+            got = 0
+            for u in user_data:
+                if u["instanceId"] == str(q.get("instanceId")):
+                    got = len([c for c in json.loads(u["answer"]).get("children") or [] if c.get("value")])
+                    break
+            if got != want:
+                malformed.append(f"idx={q.get('startNo')} 需要 {want} 空、实到 {got} 空")
+        if malformed:
+            raise UpstreamError("answer_malformed",
+                                "答案格式与卷面不符，已中止提交（避免判 0 分）：" + "；".join(malformed[:4]))
+
         duration_s = runtime.pick_duration_seconds() if runtime.get_real_submit() else 0
         if duration_s > 0 and user_data:
             _log(job_id, f"INFO 进入模拟作答：目标时长 {duration_s}s（可在页面调整）")

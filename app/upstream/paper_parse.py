@@ -175,6 +175,8 @@ def normalize(paper_payload: dict[str, Any], task_id: str) -> dict[str, Any]:
             "texts": texts,
             "options": top_options if (top_options and len(subs) > 1) else (subs[0]["options"] if len(subs) == 1 else top_options),
             "subs": subs,
+            # 卷面真实子题数（用于提交覆盖率：必须与之一致，否则 4295）
+            "childCount": len(data.get("children") or []),
         })
     questions.sort(key=lambda q: (q.get("startNo") or 0))
 

@@ -1,8 +1,8 @@
 """全局配置：全部来自环境变量 / .env，默认值即可直接本地跑起来。
 
-同时支持 PyInstaller 打包后的运行方式：
-  · 资源（app/static、manifest、icons）从 _MEIPASS 读
-  · 数据（data/、.env）放在 exe 同目录，便于迁移
+同时支持打包后的运行方式（PyInstaller / Nuitka）：
+  · 资源（app/static、manifest、icons）跟随模块所在目录（Nuitka 解包目录 / _MEIPASS）
+  · 数据（data/、.env）固定在 exe 同目录，便于随身携带
 """
 from __future__ import annotations
 
@@ -13,27 +13,39 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _is_packed() -> bool:
+    """PyInstaller 用 sys.frozen；Nuitka 只给每个模块注入 __compiled__。"""
+    return bool(getattr(sys, "frozen", False)) or "__compiled__" in globals()
+
+
+def _exe_dir() -> Path:
+    try:
+        return Path(sys.executable).resolve().parent
+    except OSError:
+        return Path.cwd()
+
+
 def _resource_root() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        return Path(getattr(sys, "_MEIPASS", _exe_dir()))
     return Path(__file__).resolve().parent.parent
 
 
 def _data_root() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "data"
+    if _is_packed():
+        return _exe_dir() / "data"
     return _resource_root() / "data"
 
 
 ROOT = _resource_root()          # 资源根（打包后是解包目录）
-DATA = _data_root()              # 可写数据目录（打包后是 exe 同级 data）
+DATA = _data_root()              # 可写数据目录（打包后在 exe 同级）
 DATA.mkdir(parents=True, exist_ok=True)
 (DATA / "logs").mkdir(exist_ok=True)
 
 
 def _env_file() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / ".env"
+    if _is_packed():
+        return _exe_dir() / ".env"
     return ROOT / ".env"
 
 

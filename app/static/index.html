@@ -76,6 +76,13 @@
       <label class="hint row" style="gap:6px;width:auto">
         随机 <input id="durJit" type="number" min="0" max="60" step="5" style="width:64px" /> %
       </label>
+      <label class="hint row" style="gap:6px;width:auto" title="U校园前端按毫秒计时；若显示为 0 秒就换另一个单位">
+        上报单位
+        <select id="durUnit" style="width:88px">
+          <option value="ms">毫秒</option>
+          <option value="s">秒</option>
+        </select>
+      </label>
       <button id="saveDur" class="ghost">保存</button>
       <span id="settingsMsg" class="hint"></span>
     </div>
@@ -215,9 +222,20 @@ function headers(extra) {
   return h;
 }
 async function api(path, { method = "GET", body } = {}) {
-  const opt = { method, credentials: "same-origin", headers: headers(method !== "GET" ? { "X-UCampus-Request": "1" } : {}) };
+  const opt = { method, credentials: "include", headers: headers(method !== "GET" ? { "X-UCampus-Request": "1" } : {}) };
   if (body !== undefined) opt.body = JSON.stringify(body);
-  const res = await fetch(path, opt);
+  let res;
+  try {
+    res = await fetch(path, opt);
+  } catch (e) {
+    // 浏览器只在"根本没连上"时才抛 TypeError —— 把它翻译成可操作的话
+    const where = location.protocol === "file:"
+      ? "你直接双击打开了 index.html。请改成访问 http://127.0.0.1:8710/"
+      : `当前页面地址 ${location.origin}，请确认后端在同一地址上运行（默认 http://127.0.0.1:8710/）`;
+    const err = new Error(`连接不上后端（Failed to fetch）。${where}；若端口被占用或防火墙拦截也会这样。`);
+    err.hint = true;
+    throw err;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = data.error || data.detail || `请求失败 (${res.status})`;
@@ -225,6 +243,29 @@ async function api(path, { method = "GET", body } = {}) {
     err.status = res.status; err.data = data; throw err;
   }
   return data;
+}
+
+/* 启动自检：后端是否可达、页面与后端是否同源 */
+async function selfCheck() {
+  try {
+    const r = await api("/api/ping");
+    const same = !r.origin || r.origin === location.origin;
+    if (!same) {
+      $("settingsMsg").textContent =
+        `后端可达（${r.host}），但页面来源 ${location.origin} 与之不同源，已自动启用跨域模式`;
+    }
+    return true;
+  } catch (e) {
+    const box = $("modeBanner");
+    box.classList.remove("hide");
+    box.style.background = "rgba(255,107,107,.12)";
+    box.style.borderColor = "rgba(255,107,107,.4)";
+    box.innerHTML = `<b>连不上后端</b>：${esc(e.message)}<br/>`
+      + `排查顺序：① 终端里服务是否在跑（<code>python run.py</code> 或双击 exe）`
+      + ` ② 用 <code>http://127.0.0.1:8710/</code> 打开，不要双击 index.html`
+      + ` ③ 换端口/换 IP 时同步改访问地址 ④ 防火墙放行该端口`;
+    return false;
+  }
 }
 
 /* ---------------- 登录 ---------------- */
@@ -366,8 +407,9 @@ async function loadDuration() {
     const s = await api("/api/settings");
     $("durMin").value = s.durationMinutes ?? 0;
     $("durJit").value = s.jitterPercent ?? 20;
+    $("durUnit").value = s.durationUnit || "ms";
     if ((s.durationMinutes ?? 0) > 0) {
-      $("settingsMsg").textContent = `当前：每篇约 ${s.durationMinutes} 分钟（±${s.jitterPercent}%）`;
+      $("settingsMsg").textContent = `当前：每篇约 ${s.durationMinutes} 分钟（±${s.jitterPercent}%，上报 ${s.durationUnit || "ms"}）`;
     }
   } catch {}
 }
@@ -377,9 +419,9 @@ $("saveDur").onclick = async () => {
   const jitter = Number($("durJit").value) || 0;
   $("settingsMsg").textContent = "保存中…";
   try {
-    const r = await api("/api/settings", { method: "PUT", body: { durationMinutes: minutes, jitterPercent: jitter } });
+    const r = await api("/api/settings", { method: "PUT", body: { durationMinutes: minutes, jitterPercent: jitter, durationUnit: $("durUnit").value } });
     $("settingsMsg").textContent = r.durationMinutes > 0
-      ? `已设置：每篇约 ${r.durationMinutes} 分钟（±${r.jitterPercent}%），答题时会有进度条`
+      ? `已设置：每篇约 ${r.durationMinutes} 分钟（±${r.jitterPercent}%，上报 ${r.durationUnit}），答题时会有进度条`
       : "已关闭时长模拟：立即交卷";
     await loadDuration();
   } catch (e) { $("settingsMsg").textContent = e.message; }
@@ -737,6 +779,7 @@ $("sRun").onclick = async () => {
 };
 
 (async () => {
+  if (!(await selfCheck())) return;
   try {
     const s = await api("/api/auth/session");
     if (s.authenticated) { S.sid = s.sessionId; S.profile = s.profile; await enterApp(); return; }

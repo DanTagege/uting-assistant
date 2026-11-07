@@ -57,7 +57,8 @@ def get_settings(ctx: Ctx = Depends(_ctx)) -> dict[str, Any]:
     return {"realSubmit": runtime.get_real_submit(), "upstream": settings.upstream,
             "durationMinutes": runtime.get_duration_minutes(),
             "jitterPercent": runtime.get_jitter_percent(),
-            "note": "realSubmit=true 时，点「自动答题」会真的交卷；durationMinutes>0 时按该时长模拟作答"}
+            "durationUnit": runtime.get_duration_unit(),
+            "note": "realSubmit=true 时点「自动答题」会真的交卷；durationMinutes>0 时按该时长模拟作答"}
 
 
 @router.put("/settings")
@@ -70,9 +71,12 @@ def put_settings(payload: dict[str, Any], ctx: Ctx = Depends(_ctx)) -> dict[str,
         runtime.set_duration_minutes(float(payload["durationMinutes"] or 0))
     if "jitterPercent" in payload:
         runtime.set_jitter_percent(int(payload["jitterPercent"] or 0))
+    if "durationUnit" in payload:
+        runtime.set_duration_unit(str(payload["durationUnit"]))
     return {"ok": True, "realSubmit": runtime.get_real_submit(),
             "durationMinutes": runtime.get_duration_minutes(),
-            "jitterPercent": runtime.get_jitter_percent()}
+            "jitterPercent": runtime.get_jitter_percent(),
+            "durationUnit": runtime.get_duration_unit()}
 
 
 @router.get("/meta")

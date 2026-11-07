@@ -1,6 +1,7 @@
 """运行时开关（存 kv 表，改完立即生效，不需要重启）。"""
 from __future__ import annotations
 
+import os
 import random
 
 from . import db
@@ -66,4 +67,30 @@ def pick_duration_seconds(minutes: float | None = None) -> int:
     jitter = get_jitter_percent() / 100.0
     factor = 1.0 + random.uniform(-jitter, jitter)
     return max(20, int(base * factor))
+
+
+# ---------------------------------------------------------------- 上报单位
+K_DURATION_UNIT = "duration_unit"
+DURATION_UNITS = ("ms", "s")
+
+
+def get_duration_unit() -> str:
+    """duration 字段的语义：ms=毫秒（官方前端口径，默认），s=秒。"""
+    row = db.one("SELECT v FROM kv WHERE k=?", (K_DURATION_UNIT,))
+    val = str(row["v"]).strip().lower() if row is not None else os.environ.get("UC_DURATION_UNIT", "ms")
+    return val if val in DURATION_UNITS else "ms"
+
+
+def set_duration_unit(unit: str) -> str:
+    unit = unit if unit in DURATION_UNITS else "ms"
+    db.ex("INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+          (K_DURATION_UNIT, unit))
+    return unit
+
+
+def to_payload_duration(seconds: float) -> int:
+    """把内部秒数转成提交时的 duration 值（默认毫秒）。"""
+    seconds = max(0.0, float(seconds or 0))
+    return int(round(seconds * 1000)) if get_duration_unit() == "ms" else int(round(seconds))
+
 

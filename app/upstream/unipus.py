@@ -620,7 +620,8 @@ class UnipusUpstream(Upstream):
             raise UpstreamError("unsupported", "没有可提交的客观题答案")
 
         body = {"taskId": task_id, "ansVersion": ans_version, "token": token,
-                "duration": max(1, len(user_data)), "userData": user_data}
+                "duration": runtime.to_payload_duration(max(1, len(user_data) * 20)),
+                "userData": user_data}
 
         if not runtime.get_real_submit():
             if log:
