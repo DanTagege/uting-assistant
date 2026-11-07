@@ -12,6 +12,9 @@
 
 ---
 
+
+> **不想装 Python？** 直接下载 Windows 单文件版：[Releases · v1.0.0](https://github.com/DanTagege/uting-assistant/releases/latest)（双击运行，数据存在 exe 同目录的 `data/`）
+
 ## 目录
 
 - [这是什么](#这是什么)
